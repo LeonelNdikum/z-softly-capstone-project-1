@@ -4,7 +4,6 @@ A stateless web app with two static pages (`/page1` and `/page2`), running as a 
 
 ## Architecture
 
-```
 User → DNS (CNAME) → Application Load Balancer (public subnets)
                               ↓
                 ECS Fargate tasks x2 (private subnets, 2 AZs)
