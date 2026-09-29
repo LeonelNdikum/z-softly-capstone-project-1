@@ -1,0 +1,122 @@
+# ZSoftly Capstone Project 1
+
+A stateless web app with two static pages (`/page1` and `/page2`), running as a container on **AWS ECS Fargate** behind a public **Application Load Balancer**. All infrastructure is built with **Terraform** using raw resources only (no modules).
+
+## Architecture
+
+```
+User → DNS (CNAME) → Application Load Balancer (public subnets)
+                              ↓
+                ECS Fargate tasks x2 (private subnets, 2 AZs)
+                              ↓
+        Image pulled from ECR through the NAT gateway
+```
+
+- **Region:** `eu-west-2` (London)
+- **Network:** VPC with 2 public and 2 private subnets, internet gateway, one NAT gateway
+- **Compute:** ECS Fargate service, 2 tasks, nginx container on port 80
+- **Load balancer:** ALB on HTTP port 80, health check on `/page1`
+- **Security:** only the ALB is public; tasks accept traffic only from the ALB security group
+- **Logs:** CloudWatch Logs
+- **State:** Terraform state in S3 with locking
+
+## Project Structure
+
+```
+application/     Dockerfile, nginx.conf, page1.html, page2.html
+terraform/       main.tf, variable.tf, networking.tf, security.tf,
+                 alb.tf, ecs.tf, route53.tf, output.tf
+```
+
+## Prerequisites
+
+- AWS account and AWS CLI configured (`aws sts get-caller-identity` should work)
+- Terraform 1.10 or later
+- Docker
+- An S3 bucket for Terraform state (the name is set in the `backend` block in `terraform/main.tf`)
+
+## Deploy
+
+**1. Create the ECR repository first**
+
+```bash
+cd terraform
+terraform init
+terraform apply -target=aws_ecr_repository.app
+cd ..
+```
+
+**2. Build and push the Docker image (tag `v1`)**
+
+```bash
+export AWS_REGION=eu-west-2
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+export REPO=zsoftly-capstone-web
+
+aws ecr get-login-password --region $AWS_REGION | \
+  docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+cd application
+docker build -t $REPO:v1 .
+docker tag $REPO:v1 $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO:v1
+docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO:v1
+cd ..
+```
+
+**3. Deploy everything else**
+
+```bash
+cd terraform
+terraform plan
+terraform apply
+```
+
+**4. Point your domain at the load balancer**
+
+```bash
+terraform output -raw alb_dns_name
+```
+
+In IONOS DNS for `leonels-projects.co.uk`, create a `CNAME` record: host `www`, pointing to the value above.
+
+## Test
+
+```bash
+curl -i http://$(terraform output -raw alb_dns_name)/page1
+curl -i http://$(terraform output -raw alb_dns_name)/page2
+```
+
+Once DNS has propagated:
+
+- http://www.leonels-projects.co.uk/page1
+- http://www.leonels-projects.co.uk/page2
+
+Both should return HTTP 200.
+
+## Outputs
+
+`ecr_repository_url`, `alb_dns_name`, `ecs_cluster_name`, `ecs_service_name`, `nat_gateway_id`, `nat_gateway_public_ip`
+
+## Clean Up
+
+The NAT gateway and load balancer are billed hourly, so destroy the stack when you are done:
+
+```bash
+cd terraform
+terraform destroy
+```
+
+If destroy fails because the ECR repository still contains an image, delete the image first:
+
+```bash
+aws ecr batch-delete-image --repository-name zsoftly-capstone-web \
+  --region eu-west-2 --image-ids imageTag=v1
+```
+
+## Screenshots
+
+_Add screenshots here: terraform apply, ECS service running, healthy ALB targets, and both pages in the browser._
+
+## Author
+
+Leonel Ndikum, ZSoftly AWS DevOps Program
