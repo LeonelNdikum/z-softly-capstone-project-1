@@ -1,121 +1,629 @@
-# ZSoftly Capstone Project 1
+# ZSoftly Capstone Project
 
-A stateless web app with two static pages (`/page1` and `/page2`), running as a container on **AWS ECS Fargate** behind a public **Application Load Balancer**. All infrastructure is built with **Terraform** using raw resources only (no modules).
+### Stateless Web Application on AWS ECS Fargate
 
-## Architecture
+A containerised, stateless web application deployed on **AWS ECS Fargate** and provisioned using **Terraform**.
 
-User → DNS (CNAME) → Application Load Balancer (public subnets)
-                              ↓
-                ECS Fargate tasks x2 (private subnets, 2 AZs)
-                              ↓
-        Image pulled from ECR through the NAT gateway
+The project demonstrates practical implementation of **Docker containerisation, Amazon ECR, AWS networking, Infrastructure as Code, ECS Fargate, load balancing, security, monitoring, and DNS**.
+
+---
+
+# 1. Project Structure
+
+```text
+z-softly-capstone-project-1/
+│
+├── application/
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   ├── page1.html
+│   └── page2.html
+│
+├── terraform/
+│   ├── main.tf
+│   ├── networking.tf
+│   ├── security-groups.tf
+│   ├── alb.tf
+│   ├── ecs.tf
+│   ├── ecr.tf
+│   ├── dns.tf
+│   ├── variables.tf
+│   └── outputs.tf
+│
+├── .gitignore
+└── README.md
 ```
 
-- **Region:** `eu-west-2` (London)
-- **Network:** VPC with 2 public and 2 private subnets, internet gateway, one NAT gateway
-- **Compute:** ECS Fargate service, 2 tasks, nginx container on port 80
-- **Load balancer:** ALB on HTTP port 80, health check on `/page1`
-- **Security:** only the ALB is public; tasks accept traffic only from the ALB security group
-- **Logs:** CloudWatch Logs
-- **State:** Terraform state in S3 with locking
+### Application
 
-## Project Structure
+Contains the Nginx web application, Dockerfile, and static pages.
 
+### Terraform
+
+Contains the AWS infrastructure configuration.
+
+### README.md
+
+Project architecture, deployment, and implementation documentation.
+
+---
+
+# 2. Application
+
+The application is a lightweight **stateless Nginx web service** exposing two endpoints:
+
+```text
+/page1
+/page2
 ```
-application/     Dockerfile, nginx.conf, page1.html, page2.html
-terraform/       main.tf, variable.tf, networking.tf, security.tf,
-                 alb.tf, ecs.tf, route53.tf, output.tf
+
+The application does not maintain local user state, allowing multiple container instances to serve requests independently.
+
+### Container
+
+```text
+Base Image: nginx:alpine
+Port:       80
+Container:  zsoftly-nginx
 ```
 
-## Prerequisites
+---
 
-- AWS account and AWS CLI configured (`aws sts get-caller-identity` should work)
-- Terraform 1.10 or later
-- Docker
-- An S3 bucket for Terraform state (the name is set in the `backend` block in `terraform/main.tf`)
+# 3. Docker Containerisation
 
-## Deploy
+The application was first containerised locally using Docker.
 
-**1. Create the ECR repository first**
+### Dockerfile
+
+```dockerfile
+FROM nginx:alpine
+
+COPY nginx.conf /etc/nginx/nginx.conf
+
+COPY page1.html /usr/share/nginx/html/page1.html
+
+COPY page2.html /usr/share/nginx/html/page2.html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+### Build the image
 
 ```bash
-cd terraform
-terraform init
-terraform apply -target=aws_ecr_repository.app
-cd ..
-```
-
-**2. Build and push the Docker image (tag `v1`)**
-
-```bash
-export AWS_REGION=eu-west-2
-export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export REPO=zsoftly-capstone-web
-
-aws ecr get-login-password --region $AWS_REGION | \
-  docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-
 cd application
-docker build -t $REPO:v1 .
-docker tag $REPO:v1 $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO:v1
-docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO:v1
-cd ..
+
+docker build -t stateless-app:v1 .
 ```
 
-**3. Deploy everything else**
+The resulting image is:
+
+```text
+stateless-app:v1
+```
+
+### Run locally
+
+```bash
+docker run --name stateless-app -d -p 80:80 stateless-app:v1
+```
+
+### Test the application
+
+```text
+http://localhost/page1
+http://localhost/page2
+```
+
+This validates the application and container before deployment to AWS.
+
+---
+
+# 4. Amazon ECR
+
+After validating the Docker container locally, the image is stored in **Amazon Elastic Container Registry (ECR)**.
+
+### Repository
+
+```text
+zsoftly-capstone-web
+```
+
+### Image
+
+```text
+zsoftly-capstone-web:v1
+```
+
+### Authenticate Docker with ECR
+
+```bash
+aws ecr get-login-password --region eu-west-2 | \
+docker login \
+--username AWS \
+--password-stdin 258063471393.dkr.ecr.eu-west-2.amazonaws.com
+```
+
+The ECR image is then used by the ECS task definition.
+
+---
+
+# 5. AWS Infrastructure
+
+The AWS environment is provisioned using **Terraform**.
+
+### AWS Region
+
+```text
+eu-west-2
+```
+
+### VPC
+
+```text
+10.0.0.0/16
+```
+
+The infrastructure contains:
+
+* 2 public subnets
+* 2 private subnets
+* Internet Gateway
+* NAT Gateway
+* Elastic IP
+* Route tables
+* Security groups
+* Application Load Balancer
+* ECS Fargate
+* ECR
+* IAM
+* CloudWatch
+
+---
+
+# 6. Network Architecture
+
+```text
+                         Internet
+                            │
+                            ▼
+                  Application Load Balancer
+                            │
+             ┌──────────────┴──────────────┐
+             │                             │
+             ▼                             ▼
+      Public Subnet 1               Public Subnet 2
+             │                             │
+             │
+        NAT Gateway
+             │
+             ▼
+      Private Subnet 1             Private Subnet 2
+             │                             │
+             ▼                             ▼
+      ECS Fargate Task              ECS Fargate Task
+             │                             │
+             └──────────────┬──────────────┘
+                            ▼
+                           Nginx
+```
+
+The Application Load Balancer is deployed in the public subnets.
+
+ECS Fargate tasks are deployed in private subnets and do not receive public IP addresses.
+
+---
+
+# 7. Infrastructure as Code
+
+Terraform is used to provision and manage the AWS infrastructure.
+
+### Terraform workflow
 
 ```bash
 cd terraform
+
+terraform init
+terraform validate
 terraform plan
 terraform apply
 ```
 
-**4. Point your domain at the load balancer**
+Terraform manages:
+
+```text
+VPC
+├── Public Subnets
+├── Private Subnets
+├── Route Tables
+├── Internet Gateway
+├── NAT Gateway
+└── Elastic IP
+
+Security
+├── ALB Security Group
+└── ECS Security Group
+
+Application
+├── Application Load Balancer
+├── Target Group
+└── Listener
+
+Compute
+├── ECS Cluster
+├── ECS Service
+└── ECS Task Definition
+
+Supporting Services
+├── ECR
+├── IAM
+└── CloudWatch
+```
+
+Terraform state is stored remotely in Amazon S3.
+
+---
+
+# 8. Amazon ECS Fargate
+
+The application is deployed using **Amazon ECS with AWS Fargate**.
+
+### ECS Cluster
+
+```text
+zsoftly-capstone-cluster
+```
+
+### ECS Service
+
+```text
+zsoftly-capstone-service
+```
+
+### Task Definition
+
+```text
+zsoftly-capstone-task
+```
+
+### Configuration
+
+| Configuration  | Value    |
+| -------------- | -------- |
+| Launch Type    | Fargate  |
+| Tasks          | 2        |
+| CPU            | 256      |
+| Memory         | 512 MB   |
+| Network Mode   | `awsvpc` |
+| Container Port | 80       |
+| Public IP      | Disabled |
+
+The two ECS tasks run in private subnets across two Availability Zones.
+
+---
+
+# 9. Application Load Balancer
+
+The Application Load Balancer provides the public entry point for the application.
+
+```text
+Internet
+   │
+   ▼
+ALB :80
+   │
+   ▼
+Target Group
+   │
+   ├── ECS Task 1
+   │
+   └── ECS Task 2
+```
+
+### Configuration
+
+```text
+Name:         zsoftly-capstone-alb
+Protocol:     HTTP
+Port:         80
+Target Type:  IP
+```
+
+### Health Check
+
+```text
+Path:     /page1
+Protocol: HTTP
+Port:     80
+Matcher:  200-399
+```
+
+Only healthy ECS tasks receive traffic from the ALB.
+
+---
+
+# 10. Security
+
+The application uses a private-service architecture.
+
+### ALB Security Group
+
+Allows:
+
+```text
+TCP 80
+Source: 0.0.0.0/0
+```
+
+### ECS Security Group
+
+Allows:
+
+```text
+TCP 80
+Source: ALB Security Group
+```
+
+Therefore:
+
+```text
+Internet
+    │
+    ▼
+   ALB
+    │
+    ▼
+ ECS Tasks
+```
+
+The ECS tasks cannot be accessed directly from the public internet.
+
+Additional controls include:
+
+* ECS tasks have no public IP addresses.
+* Dedicated IAM execution role for ECS.
+* ECR image scanning enabled.
+* ECR encryption enabled.
+* CloudWatch logging enabled.
+
+---
+
+# 11. DNS
+
+The production domain is:
+
+```text
+www.leonels-projects.co.uk
+```
+
+DNS is managed through **IONOS**.
+
+The `www` record points to the AWS Application Load Balancer.
+
+```text
+www.leonels-projects.co.uk
+            │
+            ▼
+        IONOS DNS
+            │
+            ▼
+   AWS Application Load Balancer
+            │
+            ▼
+       ECS Fargate
+```
+
+> The original assignment specified Route 53. IONOS is used in this implementation because the project domain is managed through IONOS.
+
+---
+
+# 12. Monitoring & Logging
+
+ECS container logs are delivered to **Amazon CloudWatch**.
+
+### Log Group
+
+```text
+/ecs/zsoftly-capstone
+```
+
+### Retention
+
+```text
+30 days
+```
+
+### ECS Monitoring
+
+Container Insights is enabled on the ECS cluster.
+
+This provides visibility into:
+
+* ECS service activity
+* Running tasks
+* Container performance
+* Application logs
+* Task failures
+
+---
+
+# 13. Deployment Flow
+
+The complete deployment process follows:
+
+```text
+Application
+     │
+     ▼
+Docker Build
+     │
+     ▼
+Local Container Test
+     │
+     ▼
+Amazon ECR
+     │
+     ▼
+Terraform
+     │
+     ▼
+AWS Infrastructure
+     │
+     ▼
+ECS Fargate
+     │
+     ▼
+Application Load Balancer
+     │
+     ▼
+IONOS DNS
+     │
+     ▼
+Production Application
+```
+
+---
+
+# 14. Deployment
+
+### Initialise Terraform
+
+```bash
+cd terraform
+terraform init
+```
+
+### Validate configuration
+
+```bash
+terraform validate
+```
+
+### Review infrastructure
+
+```bash
+terraform plan
+```
+
+### Deploy
+
+```bash
+terraform apply
+```
+
+### Retrieve the ALB endpoint
 
 ```bash
 terraform output -raw alb_dns_name
 ```
 
-In IONOS DNS for `leonels-projects.co.uk`, create a `CNAME` record: host `www`, pointing to the value above.
+---
 
-## Test
+# 15. Application Verification
 
-```bash
-curl -i http://$(terraform output -raw alb_dns_name)/page1
-curl -i http://$(terraform output -raw alb_dns_name)/page2
+### Local
+
+```text
+http://localhost/page1
+http://localhost/page2
 ```
 
-Once DNS has propagated:
+### AWS Load Balancer
 
-- http://www.leonels-projects.co.uk/page1
-- http://www.leonels-projects.co.uk/page2
-
-Both should return HTTP 200.
-
-## Outputs
-
-`ecr_repository_url`, `alb_dns_name`, `ecs_cluster_name`, `ecs_service_name`, `nat_gateway_id`, `nat_gateway_public_ip`
-
-## Clean Up
-
-The NAT gateway and load balancer are billed hourly, so destroy the stack when you are done:
-
-```bash
-cd terraform
-terraform destroy
+```text
+http://<ALB-DNS-NAME>/page1
+http://<ALB-DNS-NAME>/page2
 ```
 
-If destroy fails because the ECR repository still contains an image, delete the image first:
+### Production
 
-```bash
-aws ecr batch-delete-image --repository-name zsoftly-capstone-web \
-  --region eu-west-2 --image-ids imageTag=v1
+```text
+https://www.leonels-projects.co.uk/page1
+https://www.leonels-projects.co.uk/page2
 ```
 
-## Screenshots
+### ECS Service
 
-_Add screenshots here: terraform apply, ECS service running, healthy ALB targets, and both pages in the browser._
+The service is configured with:
 
-## Author
+```text
+Desired Tasks: 2
+```
 
-Leonel Ndikum, ZSoftly AWS DevOps Program
+The ALB health check verifies:
+
+```text
+/page1
+```
+
+before routing traffic to a task.
+
+---
+
+# 16. Resilience
+
+The application is designed to maintain service availability through:
+
+* Two ECS Fargate tasks
+* Two Availability Zones
+* Application Load Balancer
+* Automated ECS task replacement
+* ALB health checks
+* Private application subnets
+* Stateless application design
+
+If an ECS task becomes unhealthy, the ALB removes it from service while ECS can replace the task.
+
+> **Current limitation:** The environment uses a single NAT Gateway. A fully production-grade multi-AZ design would typically deploy a NAT Gateway in each Availability Zone to remove the NAT Gateway as a single-AZ dependency.
+
+---
+
+# 17. Demonstration
+
+The project demonstrates the complete path from application development to production deployment:
+
+```text
+┌─────────────────────────────────────────────┐
+│              Application Layer              │
+│        Nginx + HTML + Docker                │
+└──────────────────────┬──────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────┐
+│              Container Layer                │
+│                  Amazon ECR                 │
+└──────────────────────┬──────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────┐
+│              Compute Layer                  │
+│               ECS Fargate                   │
+│              2 Running Tasks                │
+└──────────────────────┬──────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────┐
+│              Network Layer                  │
+│          VPC + ALB + NAT + SGs              │
+└──────────────────────┬──────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────┐
+│             Operations Layer                │
+│          IAM + CloudWatch + DNS             │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+# 18. Repository
+
+**GitHub:**
+https://github.com/LeonelNdikum/z-softly-capstone-project-1
+
+**AWS Region:** `eu-west-2`
+
+**Author:** Leonel Ndikum
+
+
