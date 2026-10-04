@@ -8,7 +8,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "zsoftly-capstone-tfstate-321456"      # <-- your S3 bucket name (must already exist)
+    bucket       = "zsoftly-capstone-tfstate-1023"         # <-- your S3 bucket name (must already exist)
     key          = "capstone-project-1/terraform.tfstate" # <-- path/filename within the bucket
     region       = "us-east-1"                            # <-- region the bucket lives in
     encrypt      = true                                   # encrypts the state file at rest
