@@ -1,10 +1,7 @@
-```yaml
+
 name: CI
 
 on:
-  pull_request:
-    branches:
-      - main
 
   push:
     branches:
@@ -16,7 +13,7 @@ permissions:
 jobs:
   terraform:
     name: Terraform Validation
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     defaults:
       run:
@@ -40,7 +37,7 @@ jobs:
 
   docker:
     name: Docker Build and Security Scan
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - name: Checkout repository
@@ -61,4 +58,3 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
           severity: CRITICAL,HIGH
-```
