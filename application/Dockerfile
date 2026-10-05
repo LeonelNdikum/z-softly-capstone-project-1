@@ -1,5 +1,7 @@
 FROM nginx:alpine
 
+RUN apk update && apk upgrade
+
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY page1.html /usr/share/nginx/html/page1.html
 COPY page2.html /usr/share/nginx/html/page2.html
