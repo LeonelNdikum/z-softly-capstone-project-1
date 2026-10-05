@@ -27,7 +27,6 @@
 #
 # WARNING: this is destructive and cannot be undone. The state bucket is
 # deleted LAST, because Terraform needs it while destroying.
-# =============================================================================
 
 set -uo pipefail
 
