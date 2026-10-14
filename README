@@ -1,6 +1,6 @@
 # ZSoftly Capstone Project
 
-### Stateless Web Application on AWS ECS Fargate
+### Stateless Web Application on AWS ECS Fargate.
 
 A containerised, stateless web application deployed on **AWS ECS Fargate** and provisioned using **Terraform**.
 
