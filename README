@@ -10,7 +10,6 @@ The project demonstrates practical implementation of **Docker containerisation, 
 
 # 1. Project Structure
 
-```text
 z-softly-capstone-project-1/
 │
 ├── application/
@@ -32,7 +31,6 @@ z-softly-capstone-project-1/
 │
 ├── .gitignore
 └── README.md
-```
 
 ### Application
 
@@ -46,7 +44,6 @@ Contains the AWS infrastructure configuration.
 
 Project architecture, deployment, and implementation documentation.
 
----
 
 # 2. Application
 
@@ -615,7 +612,6 @@ The project demonstrates the complete path from application development to produ
 └─────────────────────────────────────────────┘
 ```
 
----
 
 # 18. Repository
 
