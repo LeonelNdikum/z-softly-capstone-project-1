@@ -30,6 +30,7 @@ jobs:
   build-scan-deploy:
     name: Build, scan, publish, deploy
     runs-on: ubuntu-latest
+    environment: Github-action
     timeout-minutes: 30
     permissions:
       contents: read
