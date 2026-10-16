@@ -8,7 +8,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "zsoftly-capstone-tfstate-10246789"       # <-- your S3 bucket name (must already exist)
+    bucket       = "zsoftly-capstone-tfstate-102467891"    # <-- your S3 bucket name (must already exist)
     key          = "capstone-project-1/terraform.tfstate" # <-- path/filename within the bucket
     region       = "us-east-1"                            # <-- region the bucket lives in
     encrypt      = true                                   # encrypts the state file at rest
@@ -21,7 +21,7 @@ provider "aws" {
 }
 
 resource "aws_ecr_repository" "app" {
-  name                 = "zsoftly-capstone-web"
+  name                 = var.ecr_repository_name
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {

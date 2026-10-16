@@ -622,4 +622,18 @@ https://github.com/LeonelNdikum/z-softly-capstone-project-1
 
 **Author:** Leonel Ndikum
 
+# 19. GitHub Actions CI/CD
+
+The workflow in `.github/workflows/deploy-ecs.yml` builds the Nginx image for pull requests and pushes to `main`, then scans it with Trivy. Images with fixable or unfixed **HIGH** or **CRITICAL** vulnerabilities fail the workflow. A successful `main` run publishes the image to ECR using the commit SHA as its tag, then runs Terraform plan and apply with that tag as `image_tag`. Terraform updates the task definition and ECS service from the same state it uses for the infrastructure. Pull requests only build and scan; they do not access AWS.
+
+The AWS role is assumed through GitHub OIDC. Configure the following repository settings:
+
+| Setting | Type | Default / value |
+| --- | --- | --- |
+| `AWS_ROLE_TO_ASSUME` | Secret | ARN of a role trusted by this GitHub repository via OIDC |
+| `AWS_REGION` | Variable | `eu-west-2` |
+| `ECR_REPOSITORY` | Variable | `zsoftly-capstone-web` |
+
+The role trust policy should limit the GitHub OIDC subject to this repository and the `main` branch. Its permissions must allow pushing to the target ECR repository and managing every AWS resource in the Terraform configuration, plus access to the Terraform state bucket and its lock file. Because this workflow applies the full Terraform stack automatically, protect the `main` branch and review Terraform changes before merging. The ECS task execution role must be able to pull from ECR and write logs to CloudWatch.
+
 
