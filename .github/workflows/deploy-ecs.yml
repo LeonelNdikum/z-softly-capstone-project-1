@@ -2,15 +2,13 @@ name: ZSoftly Capstone CI/CD
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
     paths:
       - "application/**"
       - "terraform/**"
       - ".github/workflows/deploy.yml"
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - "application/**"
       - "terraform/**"
@@ -19,7 +17,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   AWS_REGION: eu-west-2
@@ -29,16 +26,12 @@ jobs:
   build-and-scan:
     name: Build and Scan Docker Image
     runs-on: self-hosted
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: |
-          docker build \
-            -t "zsoftly-capstone-web:${GITHUB_SHA}" \
-            ./application
+        run: docker build -t "zsoftly-capstone-web:${GITHUB_SHA}" ./application
 
       - name: Scan image with Trivy
         run: |
@@ -51,11 +44,12 @@ jobs:
   deploy:
     name: Push to ECR and Deploy to ECS
     needs: build-and-scan
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: self-hosted
-
+    environment: Production # must match the trust policy exactly (capital P)
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
@@ -64,56 +58,39 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
-          aws-region: eu-west-2
-      
       - name: Check AWS role variable
         env:
           AWS_ROLE: ${{ vars.AWS_ROLE_TO_ASSUME }}
         run: |
           if [ -z "$AWS_ROLE" ]; then
             echo "ERROR: AWS_ROLE_TO_ASSUME is empty."
-            echo "Create it under repository-level Actions variables."
             exit 1
           fi
-
-          echo "AWS role variable is available."
           case "$AWS_ROLE" in
-            arn:aws:iam::*:role/*)
-              echo "Role ARN format is valid."
-              ;;
-            *)
-              echo "ERROR: The role ARN format is invalid."
-              exit 1
-              ;;
+            arn:aws:iam::*:role/*) echo "Role ARN format is valid." ;;
+            *) echo "ERROR: Invalid role ARN format."; exit 1 ;;
           esac
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build Docker image for deployment
-        run: |
-          docker build \
-            -t "zsoftly-capstone-web:${GITHUB_SHA}" \
-            ./application
+        run: docker build -t "zsoftly-capstone-web:${GITHUB_SHA}" ./application
 
       - name: Push commit-tagged image to ECR
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker tag \
-            "zsoftly-capstone-web:${IMAGE_TAG}" \
-            "${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-
-          docker push \
-            "${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          docker tag "zsoftly-capstone-web:${IMAGE_TAG}" "${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          docker push "${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
