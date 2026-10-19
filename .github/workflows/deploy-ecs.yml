@@ -69,6 +69,28 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
           aws-region: eu-west-2
+      
+      - name: Check AWS role variable
+        env:
+          AWS_ROLE: ${{ vars.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -z "$AWS_ROLE" ]; then
+            echo "ERROR: AWS_ROLE_TO_ASSUME is empty."
+            echo "Create it under repository-level Actions variables."
+            exit 1
+          fi
+
+          echo "AWS role variable is available."
+          case "$AWS_ROLE" in
+            arn:aws:iam::*:role/*)
+              echo "Role ARN format is valid."
+              ;;
+            *)
+              echo "ERROR: The role ARN format is invalid."
+              exit 1
+              ;;
+          esac
+
 
       - name: Log in to Amazon ECR
         id: ecr
