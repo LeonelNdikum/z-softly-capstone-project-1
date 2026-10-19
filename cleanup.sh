@@ -147,8 +147,7 @@ else
   warn "terraform or $TF_DIR not found, skipping"
 fi
 
-# ------------------------------ 3. ECS ---------------------------------------
-step "3/10 ECS service, cluster and task definitions"
+# ------------------------------ 3. ECS ---------------------------------------.
 CLUSTER="${PROJECT}-cluster"
 if real "$(aws ecs describe-clusters --clusters "$CLUSTER" \
       --query 'clusters[?status==`ACTIVE`].clusterArn' --output text 2>/dev/null)"; then
