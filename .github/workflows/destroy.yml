@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Type "destroy" to confirm'
+        description: "Select destroy to confirm"
         required: true
-
+        type: choice
+        options:
+          - "no"
+          - "destroy"
+        default: "no"
 permissions:
   contents: read
 
@@ -17,7 +21,7 @@ env:
 jobs:
   destroy:
     name: Terraform destroy
-    if: github.ref == 'refs/heads/main' && github.event.inputs.confirm == 'destroy'
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'destroy'
     runs-on: ubuntu-latest
     environment: Production
     timeout-minutes: 30
