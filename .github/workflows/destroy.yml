@@ -1,0 +1,62 @@
+name: Destroy ECS infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm'
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  ECR_REPOSITORY: zsoftly-capstone-web
+
+jobs:
+  destroy:
+    name: Terraform destroy
+    if: github.ref == 'refs/heads/main' && github.event.inputs.confirm == 'destroy'
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Delete images from ECR (a repo with images can't be destroyed)
+        run: |
+          IDS=$(aws ecr list-images --repository-name "$ECR_REPOSITORY" --query 'imageIds[*]' --output json 2>/dev/null || echo "[]")
+          if [ "$IDS" != "[]" ] && [ -n "$IDS" ]; then
+            aws ecr batch-delete-image --repository-name "$ECR_REPOSITORY" --image-ids "$IDS"
+          else
+            echo "No images to delete."
+          fi
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Initialize Terraform
+        run: terraform -chdir=terraform init -input=false
+
+      - name: Destroy infrastructure
+        run: >-
+          terraform -chdir=terraform destroy -input=false -auto-approve
+          -var="image_tag=destroy"
+          -var="ecr_repository_name=${ECR_REPOSITORY}"
