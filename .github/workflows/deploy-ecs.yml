@@ -94,7 +94,7 @@ jobs:
 
       - name: Validate Terraform
         run: terraform -chdir=terraform validate
-            - name: Import existing ECR repository (skips if already in state)
+      - name: Import existing ECR repository (skips if already in state)
         run: |
           if ! terraform -chdir=terraform state list | grep -qx 'aws_ecr_repository.app'; then
             terraform -chdir=terraform import -input=false \
