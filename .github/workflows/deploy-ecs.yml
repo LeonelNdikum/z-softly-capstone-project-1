@@ -94,6 +94,16 @@ jobs:
 
       - name: Validate Terraform
         run: terraform -chdir=terraform validate
+            - name: Import existing ECR repository (skips if already in state)
+        run: |
+          if ! terraform -chdir=terraform state list | grep -qx 'aws_ecr_repository.app'; then
+            terraform -chdir=terraform import -input=false \
+              -var="image_tag=${GITHUB_SHA}" \
+              -var="ecr_repository_name=${ECR_REPOSITORY}" \
+              aws_ecr_repository.app "${ECR_REPOSITORY}"
+          else
+            echo "ECR repository already in state, skipping import."
+          fi
 
       - name: Plan infrastructure and image deployment
         env:
