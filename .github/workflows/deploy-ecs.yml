@@ -1,4 +1,4 @@
-name: ZSoftly Capstone CI/CD
+name: Build, scan, and deploy to ECS
 
 on:
   pull_request:
@@ -6,13 +6,13 @@ on:
     paths:
       - "application/**"
       - "terraform/**"
-      - ".github/workflows/deploy.yml"
+      - ".github/workflows/deploy-ecs.yml"
   push:
     branches: [main]
     paths:
       - "application/**"
       - "terraform/**"
-      - ".github/workflows/deploy.yml"
+      - ".github/workflows/deploy-ecs.yml"
   workflow_dispatch:
 
 permissions:
@@ -24,29 +24,34 @@ env:
 
 jobs:
   build-and-scan:
-    name: Build and Scan Docker Image
-    runs-on: self-hosted
+    name: Build and scan image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Checkout repository
+      - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t "zsoftly-capstone-web:${GITHUB_SHA}" ./application
+      - name: Build image
+        run: docker build --pull --tag "zsoftly-capstone-web:${GITHUB_SHA}" ./application
 
       - name: Scan image with Trivy
-        run: |
-          trivy image \
-            --severity HIGH,CRITICAL \
-            --exit-code 1 \
-            --ignore-unfixed \
-            "zsoftly-capstone-web:${GITHUB_SHA}"
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy:0.64.1 image
+          --exit-code 1
+          --severity HIGH,CRITICAL
+          --ignore-unfixed
+          --scanners vuln
+          "zsoftly-capstone-web:${GITHUB_SHA}"
 
   deploy:
-    name: Push to ECR and Deploy to ECS
+    name: Push to ECR and deploy to ECS
     needs: build-and-scan
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: self-hosted
-    environment: Production # must match the trust policy exactly (capital P)
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
     concurrency:
       group: deploy-production
       cancel-in-progress: false
@@ -55,23 +60,10 @@ jobs:
       id-token: write
 
     steps:
-      - name: Checkout repository
+      - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Check AWS role variable
-        env:
-          AWS_ROLE: ${{ vars.AWS_ROLE_TO_ASSUME }}
-        run: |
-          if [ -z "$AWS_ROLE" ]; then
-            echo "ERROR: AWS_ROLE_TO_ASSUME is empty."
-            exit 1
-          fi
-          case "$AWS_ROLE" in
-            arn:aws:iam::*:role/*) echo "Role ARN format is valid." ;;
-            *) echo "ERROR: Invalid role ARN format."; exit 1 ;;
-          esac
-
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
@@ -81,10 +73,10 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker image for deployment
-        run: docker build -t "zsoftly-capstone-web:${GITHUB_SHA}" ./application
+      - name: Build image
+        run: docker build --pull --tag "zsoftly-capstone-web:${GITHUB_SHA}" ./application
 
-      - name: Push commit-tagged image to ECR
+      - name: Tag and push image to ECR
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
@@ -106,16 +98,7 @@ jobs:
       - name: Plan infrastructure and image deployment
         env:
           IMAGE_TAG: ${{ github.sha }}
-        run: |
-          terraform -chdir=terraform plan \
-            -input=false \
-            -out=tfplan \
-            -var="image_tag=${IMAGE_TAG}" \
-            -var="ecr_repository_name=${ECR_REPOSITORY}"
-
-      - name: Apply infrastructure and deploy image
-        run: |
-          terraform -chdir=terraform apply \
-            -input=false \
-            -auto-approve \
-            tfplan
+        run: >-
+          terraform -chdir=terraform plan -input=false -out=tfplan
+          -var="image_tag=${IMAGE_TAG}"
+          -var="ecr_repository_name=${ECR_REPOSITORY}"
