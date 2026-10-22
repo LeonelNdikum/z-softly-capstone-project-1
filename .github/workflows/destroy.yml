@@ -11,12 +11,14 @@ on:
           - "no"
           - "destroy"
         default: "no"
+
 permissions:
   contents: read
 
 env:
   AWS_REGION: eu-west-2
   ECR_REPOSITORY: zsoftly-capstone-web
+  TF_VERSION: 1.10.5
 
 jobs:
   destroy:
@@ -42,22 +44,34 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Delete images from ECR (a repo with images can't be destroyed)
-        run: |
-          IDS=$(aws ecr list-images --repository-name "$ECR_REPOSITORY" --query 'imageIds[*]' --output json 2>/dev/null || echo "[]")
-          if [ "$IDS" != "[]" ] && [ -n "$IDS" ]; then
-            aws ecr batch-delete-image --repository-name "$ECR_REPOSITORY" --image-ids "$IDS"
-          else
-            echo "No images to delete."
-          fi
-
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.10.5
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
 
-      - name: Initialize Terraform
-        run: terraform -chdir=terraform init -input=false
+      - name: Terraform init (backend from main.tf)
+        run: >-
+          terraform -chdir=terraform init -input=false
+
+      - name: Show what is in state
+        run: |
+          terraform -chdir=terraform state list || true
+          COUNT=$(terraform -chdir=terraform state list 2>/dev/null | wc -l)
+          echo "Resources in state: $COUNT"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::warning::State is empty. Nothing will be destroyed. Check for orphaned resources in AWS."
+          fi
+
+      # A repo that still holds images can't be deleted, so empty it first.
+      - name: Delete images from ECR
+        run: |
+          IDS=$(aws ecr list-images --repository-name "$ECR_REPOSITORY" --query 'imageIds[*]' --output json 2>/dev/null || echo "[]")
+          if [ "$IDS" != "[]" ] && [ -n "$IDS" ]; then
+            aws ecr batch-delete-image --repository-name "$ECR_REPOSITORY" --image-ids "$IDS" > /dev/null
+          else
+            echo "No images to delete."
+          fi
 
       - name: Destroy infrastructure
         run: >-
