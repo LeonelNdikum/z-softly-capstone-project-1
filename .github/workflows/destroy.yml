@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: "Select destroy to confirm"
+        description: "Select destroy to confirm (destroys EVERY state file in the bucket)"
         required: true
         type: choice
         options:
@@ -19,14 +19,16 @@ env:
   AWS_REGION: eu-west-2
   ECR_REPOSITORY: zsoftly-capstone-web
   TF_VERSION: 1.10.5
+  TF_STATE_BUCKET: zsoftly-capstone-tfstate-156
+  TF_STATE_REGION: us-east-1
 
 jobs:
   destroy:
-    name: Terraform destroy
+    name: Terraform destroy (all state files)
     if: github.ref == 'refs/heads/main' && inputs.confirm == 'destroy'
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 30
+    timeout-minutes: 60
     concurrency:
       group: deploy-production
       cancel-in-progress: false
@@ -50,19 +52,6 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
-      - name: Terraform init (backend from main.tf)
-        run: >-
-          terraform -chdir=terraform init -input=false
-
-      - name: Show what is in state
-        run: |
-          terraform -chdir=terraform state list || true
-          COUNT=$(terraform -chdir=terraform state list 2>/dev/null | wc -l)
-          echo "Resources in state: $COUNT"
-          if [ "$COUNT" -eq 0 ]; then
-            echo "::warning::State is empty. Nothing will be destroyed. Check for orphaned resources in AWS."
-          fi
-
       # A repo that still holds images can't be deleted, so empty it first.
       - name: Delete images from ECR
         run: |
@@ -73,8 +62,48 @@ jobs:
             echo "No images to delete."
           fi
 
-      - name: Destroy infrastructure
-        run: >-
-          terraform -chdir=terraform destroy -input=false -auto-approve
-          -var="image_tag=destroy"
-          -var="ecr_repository_name=${ECR_REPOSITORY}"
+      # Finds every .tfstate in the bucket and destroys what each one tracks.
+      # Bucket and region come from the backend block in main.tf; only the key is overridden.
+      - name: Destroy every state file in the bucket
+        run: |
+          set +e
+          KEYS=$(aws s3api list-objects-v2 \
+            --bucket "$TF_STATE_BUCKET" --region "$TF_STATE_REGION" \
+            --query 'Contents[].Key' --output text | tr '\t' '\n' | grep '\.tfstate$')
+
+          if [ -z "$KEYS" ]; then
+            echo "::warning::No .tfstate files found in s3://${TF_STATE_BUCKET}"
+            exit 0
+          fi
+
+          echo "State files found:"
+          echo "$KEYS"
+
+          FAILED=0
+          for KEY in $KEYS; do
+            echo "::group::State: ${KEY}"
+            if ! terraform -chdir=terraform init -reconfigure -input=false -backend-config="key=${KEY}"; then
+              echo "::error::init failed for ${KEY}"
+              FAILED=1
+              echo "::endgroup::"
+              continue
+            fi
+
+            COUNT=$(terraform -chdir=terraform state list | wc -l)
+            echo "Resources in state: ${COUNT}"
+
+            if [ "$COUNT" -gt 0 ]; then
+              terraform -chdir=terraform state list
+              if ! terraform -chdir=terraform destroy -input=false -auto-approve \
+                   -var="image_tag=destroy" \
+                   -var="ecr_repository_name=${ECR_REPOSITORY}"; then
+                echo "::error::destroy failed for ${KEY}"
+                FAILED=1
+              fi
+            else
+              echo "Nothing to destroy in ${KEY}"
+            fi
+            echo "::endgroup::"
+          done
+
+          exit $FAILED
