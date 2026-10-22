@@ -567,7 +567,7 @@ The application is designed to maintain service availability through:
 * Application Load Balancer
 * Automated ECS task replacement
 * ALB health checks
-* Private application subnets
+* Private application subnets.
 * Stateless application design.
 
 If an ECS task becomes unhealthy, the ALB removes it from service while ECS can replace the task.
